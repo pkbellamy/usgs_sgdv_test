@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>USGS Stream Gage Visualizer</title>
+    
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-moment/1.0.1/chartjs-adapter-moment.min.js"></script>
+    
+    <!-- Leaflet for mapping - try different CDN for better Firefox compatibility -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Local CSS -->
+    <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+    <div class="container">
+        <h1>🌊 USGS Stream Gage Data Visualizer</h1>
+        
+        <div class="controls">
+            <!-- Station Selector -->
+            <div class="station-selector">
+                <h2>Select Stream Gage Stations</h2>
+                <div class="station-input">
+                    <input type="text" id="stationInput" placeholder="Enter USGS Station ID (e.g., 01646500)" maxlength="15">
+                    <button onclick="addStation()" id="addBtn">Add Station</button>
+                </div>
+                <div class="selected-stations" id="selectedStations">
+                    <p style="color: #6c757d; font-style: italic;">No stations selected. Add up to 4 stations.</p>
+                </div>
+            </div>
+
+            <!-- Data Controls -->
+            <div class="data-controls">
+                <h2>Data Parameters</h2>
+                <div class="parameter-select">
+                    <select id="parameterSelect">
+                        <option value="00060">Discharge (ft³/s)</option>
+                        <option value="00065">Gage Height (ft)</option>
+                        <option value="00010">Temperature (°C)</option>
+                        <option value="63680">Turbidity (NTU)</option>
+                    </select>
+                </div>
+                <div class="date-controls" id="dateControls">
+                    <div class="date-inputs">
+                        <div class="date-input">
+                            <label for="startDate">Start Date:</label>
+                            <input type="date" id="startDate">
+                        </div>
+                        <div class="date-input">
+                            <label for="endDate">End Date:</label>
+                            <input type="date" id="endDate">
+                        </div>
+                    </div>
+                </div>
+                <button onclick="fetchData()" id="fetchBtn" disabled>Fetch & Visualize Data</button>
+            </div>
+
+            <!-- Display Mode Controls -->
+            <div class="display-controls">
+                <h2>Display Mode</h2>
+                <div class="display-mode-selector">
+                    <div class="display-mode-buttons">
+                        <div class="mode-button active" id="timeSeriesBtn" onclick="setDisplayMode('timeseries')">
+                            📈 Time Series<br>
+                            <small>Historical charts</small>
+                        </div>
+                        <div class="mode-button" id="currentBtn" onclick="setDisplayMode('current')">
+                            🔢 Current Values<br>
+                            <small>Latest readings</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Station Map -->
+        <div class="map-container" id="mapContainer" style="display: none;">
+            <h2>📍 Station Locations</h2>
+            <div id="map" style="height: 400px; border-radius: 15px; overflow: hidden;"></div>
+            <div class="map-legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #667eea;"></div>
+                    <span>Normal readings</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color alert" style="background: #ff4757;"></div>
+                    <span>⚠️ Rapid increase alert (100%+ in 24h)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Values Display -->
+        <div class="current-values-grid" id="currentValuesGrid" style="display: none;">
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="charts-grid" id="chartsGrid" style="display: none;">
+        </div>
+    </div>
+
+    <!-- Local JS -->
+    <script src="js/main.js"></script>
+</body>
+</html>
