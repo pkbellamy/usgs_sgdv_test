@@ -4,7 +4,16 @@ let charts = [];
 let map;
 let stationMarkers = [];
 let displayMode = 'timeseries'; // 'timeseries' or 'current'
+let allStationData = []; // Store all fetched data for parameter switching
 const colors = ['#667eea', '#764ba2', '#28a745', '#20c997'];
+
+// Parameter configurations for better labeling and formatting
+const parameterConfigs = {
+    '00060': { name: 'Discharge', unit: 'ft³/s', format: (val) => val.toFixed(1) },
+    '00065': { name: 'Gage Height', unit: 'ft', format: (val) => val.toFixed(2) },
+    '00010': { name: 'Temperature', unit: '°C', format: (val) => val.toFixed(1) },
+    '63680': { name: 'Turbidity', unit: 'NTU', format: (val) => val.toFixed(1) }
+};
 
 // Global functions that need to be accessible from HTML onclick attributes
 window.setDisplayMode = function(mode) {
@@ -74,6 +83,9 @@ window.addStation = function() {
     console.log('✅ Station added. Current stations:', selectedStations);
     updateStationDisplay();
     updateFetchButton();
+    
+    // Clear existing data when stations change
+    allStationData = [];
 };
 
 window.removeStation = function(stationId) {
@@ -88,6 +100,9 @@ window.removeStation = function(stationId) {
         map.removeLayer(markerToRemove.marker);
         stationMarkers = stationMarkers.filter(marker => marker.stationId !== stationId);
     }
+    
+    // Clear existing data when stations change
+    allStationData = [];
 };
 
 window.fetchData = function() {
@@ -98,6 +113,18 @@ window.fetchData = function() {
     }
     
     fetchDataAsync();
+};
+
+// NEW: Handle parameter changes for interactive charting
+window.onParameterChange = function() {
+    const parameter = document.getElementById('parameterSelect').value;
+    console.log('📊 Parameter changed to:', parameter);
+    
+    // If we have existing data and are in time series mode, re-fetch for new parameter
+    if (allStationData.length > 0 && displayMode === 'timeseries') {
+        console.log('🔄 Re-fetching data for new parameter...');
+        fetchDataAsync();
+    }
 };
 
 function updateStationDisplay() {
@@ -322,7 +349,8 @@ async function fetchDataAsync() {
     
     try {
         const stationData = [];
-        const parameterName = document.getElementById('parameterSelect').selectedOptions[0].textContent;
+        const paramConfig = parameterConfigs[parameter] || { name: 'Unknown Parameter', unit: '', format: (val) => val.toFixed(2) };
+        const parameterName = `${paramConfig.name} (${paramConfig.unit})`;
         
         for (let i = 0; i < selectedStations.length; i++) {
             const stationId = selectedStations[i];
@@ -374,6 +402,7 @@ async function fetchDataAsync() {
                             data: chartData,
                             color: colors[i],
                             parameterName: parameterName,
+                            parameterConfig: paramConfig,
                             alerts: alerts,
                             trend: trend
                         });
@@ -392,6 +421,9 @@ async function fetchDataAsync() {
             throw new Error('No data available for the selected stations and time period.');
         }
         
+        // Store the fetched data globally for parameter switching
+        allStationData = stationData;
+        
         document.getElementById('mapContainer').style.display = 'block';
         
         setTimeout(() => {
@@ -406,6 +438,11 @@ async function fetchDataAsync() {
             createCurrentValuesDisplay(stationData);
         } else {
             createIndividualCharts(stationData);
+            // Show chart instructions when charts are displayed
+            const instructionsElement = document.getElementById('chartInstructions');
+            if (instructionsElement) {
+                instructionsElement.style.display = 'block';
+            }
         }
         
     } catch (error) {
@@ -453,8 +490,8 @@ function createCurrentValuesDisplay(stationData) {
             trendClass = 'trend-down';
         }
         
-        const unitMatch = station.parameterName.match(/\(([^)]+)\)/);
-        const unit = unitMatch ? unitMatch[1] : '';
+        const formattedValue = station.parameterConfig.format(currentValue);
+        const unit = station.parameterConfig.unit;
         
         const cardDiv = document.createElement('div');
         cardDiv.className = 'current-value-card';
@@ -469,7 +506,7 @@ function createCurrentValuesDisplay(stationData) {
             </div>
             
             <div class="current-reading">
-                <div class="current-value">${currentValue.toFixed(2)}</div>
+                <div class="current-value">${formattedValue}</div>
                 <div class="current-unit">${unit}</div>
             </div>
             
@@ -568,6 +605,8 @@ function createIndividualCharts(stationData) {
         const avg = values.reduce((a, b) => a + b, 0) / values.length;
         const latest = values[values.length - 1];
         
+        const paramConfig = station.parameterConfig;
+        
         let alertsHtml = '';
         if (station.alerts.length > 0) {
             alertsHtml = `
@@ -576,7 +615,7 @@ function createIndividualCharts(stationData) {
                     ${station.alerts.slice(0, 3).map(alert => `
                         <div class="alert-item">
                             <strong>${moment(alert.startTime).format('MMM DD, HH:mm')} → ${moment(alert.time).format('HH:mm')}</strong>: 
-                            ${alert.startValue.toFixed(2)} → ${alert.value.toFixed(2)} 
+                            ${paramConfig.format(alert.startValue)} → ${paramConfig.format(alert.value)} 
                             (+${alert.increase}% in ${alert.minutesDiff} min)
                         </div>
                     `).join('')}
@@ -590,23 +629,23 @@ function createIndividualCharts(stationData) {
         chartDiv.innerHTML = `
             <div class="chart-header">
                 <div class="chart-title">${station.siteName}</div>
-                <div class="chart-subtitle">Station ID: ${station.stationId}</div>
+                <div class="chart-subtitle">Station ID: ${station.stationId} | ${station.parameterName}</div>
                 ${alertsHtml}
                 <div class="stats-info">
                     <div class="stat-item">
-                        <div class="stat-value">${latest.toFixed(2)}</div>
+                        <div class="stat-value">${paramConfig.format(latest)}</div>
                         <div class="stat-label">Latest</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value">${avg.toFixed(2)}</div>
+                        <div class="stat-value">${paramConfig.format(avg)}</div>
                         <div class="stat-label">Average</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value">${min.toFixed(2)}</div>
+                        <div class="stat-value">${paramConfig.format(min)}</div>
                         <div class="stat-label">Minimum</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value">${max.toFixed(2)}</div>
+                        <div class="stat-value">${paramConfig.format(max)}</div>
                         <div class="stat-label">Maximum</div>
                     </div>
                 </div>
@@ -687,11 +726,39 @@ function createIndividualCharts(stationData) {
                                     Math.abs(alert.time.getTime() - point.x.getTime()) < 60000
                                 );
                                 
-                                let label = `${station.parameterName}: ${context.parsed.y.toFixed(2)}`;
+                                let label = `${station.parameterName}: ${paramConfig.format(context.parsed.y)}`;
                                 if (alerts.length > 0) {
                                     label += ` ⚠️ ALERT: +${alerts[0].increase}% increase in ${alerts[0].minutesDiff}min`;
                                 }
                                 return label;
+                            }
+                        }
+                    },
+                    // ENHANCED: Enable zoom and pan plugins
+                    zoom: {
+                        zoom: {
+                            wheel: {
+                                enabled: true,
+                            },
+                            pinch: {
+                                enabled: true
+                            },
+                            mode: 'x',
+                            onZoomComplete: function({chart}) {
+                                console.log('🔍 Chart zoomed:', chart.scales.x.min, 'to', chart.scales.x.max);
+                            }
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                            onPanComplete: function({chart}) {
+                                console.log('👋 Chart panned:', chart.scales.x.min, 'to', chart.scales.x.max);
+                            }
+                        },
+                        limits: {
+                            x: {
+                                min: Math.min(...station.data.map(d => d.x.getTime())),
+                                max: Math.max(...station.data.map(d => d.x.getTime()))
                             }
                         }
                     }
@@ -731,7 +798,7 @@ function createIndividualCharts(stationData) {
                         },
                         ticks: {
                             callback: function(value) {
-                                return value.toFixed(1);
+                                return paramConfig.format(value);
                             }
                         }
                     }
@@ -750,6 +817,38 @@ function createIndividualCharts(stationData) {
             }
         });
         
+        // Add zoom reset button
+        const resetButton = document.createElement('button');
+        resetButton.textContent = '🔍 Reset Zoom';
+        resetButton.style.cssText = `
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            padding: 8px 12px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            z-index: 1000;
+        `;
+        resetButton.onclick = function() {
+            chart.resetZoom();
+            console.log('🔄 Chart zoom reset for', station.siteName);
+        };
+        
+        chartDiv.style.position = 'relative';
+        chartDiv.appendChild(resetButton);
+        
+        // Add double-click zoom reset
+        ctx.canvas.addEventListener('dblclick', function() {
+            chart.resetZoom();
+            console.log('🔄 Chart zoom reset via double-click for', station.siteName);
+        });
+        
         charts.push(chart);
     });
 }
@@ -758,17 +857,24 @@ function createIndividualCharts(stationData) {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('📱 Application starting up...');
     
-    // Initialize date inputs
+    // ENHANCED: Initialize date inputs to last 7 days (was 30 days)
     const today = new Date();
-    const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
+    const sevenDaysAgo = new Date(today.getTime() - (7 * 24 * 60 * 60 * 1000));
     
     const endDateElement = document.getElementById('endDate');
     const startDateElement = document.getElementById('startDate');
     
     if (endDateElement && startDateElement) {
         endDateElement.value = today.toISOString().split('T')[0];
-        startDateElement.value = thirtyDaysAgo.toISOString().split('T')[0];
-        console.log('✅ Date inputs initialized');
+        startDateElement.value = sevenDaysAgo.toISOString().split('T')[0];
+        console.log('✅ Date inputs initialized to last 7 days');
+    }
+    
+    // ENHANCED: Set up parameter change listener for interactive charting
+    const parameterSelect = document.getElementById('parameterSelect');
+    if (parameterSelect) {
+        parameterSelect.addEventListener('change', window.onParameterChange);
+        console.log('✅ Parameter change listener set up');
     }
     
     // Set up Enter key listener for station input

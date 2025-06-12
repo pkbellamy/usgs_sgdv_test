@@ -7,6 +7,8 @@
     
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <!-- ENHANCED: Added Chart.js zoom plugin -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/1.2.1/chartjs-plugin-zoom.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-moment/1.0.1/chartjs-adapter-moment.min.js"></script>
     
@@ -40,7 +42,8 @@
             <div class="data-controls">
                 <h2>Data Parameters</h2>
                 <div class="parameter-select">
-                    <select id="parameterSelect">
+                    <!-- ENHANCED: Added onchange event for interactive parameter switching -->
+                    <select id="parameterSelect" onchange="onParameterChange()">
                         <option value="00060">Discharge (ft³/s)</option>
                         <option value="00065">Gage Height (ft)</option>
                         <option value="00010">Temperature (°C)</option>
@@ -102,6 +105,33 @@
 
         <!-- Charts Grid -->
         <div class="charts-grid" id="chartsGrid" style="display: none;">
+        </div>
+        
+        <!-- ENHANCED: Instructions for chart interaction -->
+        <div style="background: #e3f2fd; padding: 15px; border-radius: 10px; margin-top: 20px; font-size: 14px; display: none;" id="chartInstructions">
+            <h3 style="margin: 0 0 10px 0; color: #1976d2;">📊 Chart Interaction Guide</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                <div>
+                    <strong>🔍 Zoom:</strong><br>
+                    • Mouse wheel to zoom in/out<br>
+                    • Pinch gesture on mobile
+                </div>
+                <div>
+                    <strong>👋 Pan:</strong><br>
+                    • Click and drag to pan<br>
+                    • Touch and drag on mobile
+                </div>
+                <div>
+                    <strong>🔄 Reset:</strong><br>
+                    • Click "Reset Zoom" button<br>
+                    • Double-click chart area
+                </div>
+                <div>
+                    <strong>📈 Switch Data:</strong><br>
+                    • Change parameter dropdown<br>
+                    • Automatically updates charts
+                </div>
+            </div>
         </div>
     </div>
 
