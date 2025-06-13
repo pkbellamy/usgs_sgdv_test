@@ -114,23 +114,35 @@
                 <div>
                     <strong>🔍 Zoom:</strong><br>
                     • Mouse wheel to zoom in/out<br>
-                    • Pinch gesture on mobile
+                    • Pinch gesture on mobile<br>
+                    • <em>Reduced sensitivity for control</em>
                 </div>
                 <div>
-                    <strong>👋 Pan:</strong><br>
+                    <strong>👋 Pan/Scrub:</strong><br>
                     • Click and drag to pan<br>
-                    • Touch and drag on mobile
+                    • Touch and drag on mobile<br>
+                    • <em>Less sensitive for precision</em>
                 </div>
                 <div>
                     <strong>🔄 Reset:</strong><br>
                     • Click "Reset Zoom" button<br>
-                    • Double-click chart area
+                    • Double-click chart area<br>
+                    • Returns to original data view
                 </div>
                 <div>
                     <strong>📈 Switch Data:</strong><br>
                     • Change parameter dropdown<br>
-                    • Automatically updates charts
+                    • Automatically updates charts<br>
+                    • <em>Preserves current zoom level</em>
                 </div>
+            </div>
+            <div style="margin-top: 10px; padding: 10px; background: #d1ecf1; border-radius: 5px; border-left: 4px solid #17a2b8;">
+                <strong>🚀 Dynamic Data Loading:</strong> As you pan and zoom, additional data is automatically fetched from USGS servers. 
+                Charts are limited to historical data from 1889 to the present moment.
+            </div>
+            <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #ffc107;">
+                <strong>💡 Performance Tip:</strong> Zoom/pan sensitivity has been reduced to prevent excessive data requests. 
+                Small delays are added to allow smooth navigation without overwhelming the USGS servers.
             </div>
         </div>
     </div>

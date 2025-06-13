@@ -5,6 +5,52 @@ let map;
 let stationMarkers = [];
 let displayMode = 'timeseries'; // 'timeseries' or 'current'
 let allStationData = []; // Store all fetched data for parameter switching
+let stationDataRanges = {}
+
+// ENHANCED: Force Y-axis recalculation as a backup method
+function forceYAxisRecalculation(chart, stationData) {
+    const xScale = chart.scales.x;
+    const visibleStartTime = xScale.min;
+    const visibleEndTime = xScale.max;
+    
+    // Filter data to only what's currently visible
+    const visibleData = stationData.data.filter(point => {
+        const pointTime = point.x.getTime();
+        return pointTime >= visibleStartTime && pointTime <= visibleEndTime;
+    });
+    
+    if (visibleData.length > 0) {
+        const visibleValues = visibleData.map(d => d.y);
+        const visibleMin = Math.min(...visibleValues);
+        const visibleMax = Math.max(...visibleValues);
+        const range = visibleMax - visibleMin;
+        const padding = Math.max(range * 0.1, 0.1);
+        
+        const newYMin = Math.max(0, visibleMin - padding);
+        const newYMax = visibleMax + padding;
+        
+        console.log(`🔧 FORCE Y-axis recalculation: ${newYMin.toFixed(2)} - ${newYMax.toFixed(2)}`);
+        
+        // Try the most aggressive approach - destroy and recreate the Y scale
+        try {
+            // Remove the current scale configuration
+            delete chart.config.options.scales.y.min;
+            delete chart.config.options.scales.y.max;
+            
+            // Set new limits
+            chart.config.options.scales.y.min = newYMin;
+            chart.config.options.scales.y.max = newYMax;
+            
+            // Force complete chart update
+            chart.update('resize');
+            
+            console.log(`🔧 FORCE update complete: ${chart.scales.y.min.toFixed(2)} - ${chart.scales.y.max.toFixed(2)}`);
+        } catch (error) {
+            console.error('🔧 Force Y-axis update failed:', error);
+        }
+    }
+}; // Store known data ranges for each station
+let isDataFetching = false; // Prevent multiple simultaneous fetches
 const colors = ['#667eea', '#764ba2', '#28a745', '#20c997'];
 
 // Parameter configurations for better labeling and formatting
@@ -115,7 +161,420 @@ window.fetchData = function() {
     fetchDataAsync();
 };
 
-// NEW: Handle parameter changes for interactive charting
+// ENHANCED: Recreate chart with new Y-axis range (nuclear option)
+function updateYAxisForVisibleData(chart, stationData) {
+    const xScale = chart.scales.x;
+    const visibleStartTime = xScale.min;
+    const visibleEndTime = xScale.max;
+    
+    // Filter data to only what's currently visible
+    const visibleData = stationData.data.filter(point => {
+        const pointTime = point.x.getTime();
+        return pointTime >= visibleStartTime && pointTime <= visibleEndTime;
+    });
+    
+    if (visibleData.length > 0) {
+        const visibleValues = visibleData.map(d => d.y);
+        const visibleMin = Math.min(...visibleValues);
+        const visibleMax = Math.max(...visibleValues);
+        const range = visibleMax - visibleMin;
+        const padding = Math.max(range * 0.1, 0.1);
+        
+        const newYMin = Math.max(0, visibleMin - padding);
+        const newYMax = visibleMax + padding;
+        
+        // Get current Y-axis range
+        const currentYMin = chart.scales.y.min;
+        const currentYMax = chart.scales.y.max;
+        
+        // Check if we need a significant change
+        const minDiff = Math.abs(newYMin - currentYMin);
+        const maxDiff = Math.abs(newYMax - currentYMax);
+        const currentRange = currentYMax - currentYMin;
+        const threshold = currentRange * 0.1; // 10% threshold for recreation
+        
+        if (minDiff > threshold || maxDiff > threshold) {
+            console.log(`🔥 RECREATING CHART with new Y-axis: ${newYMin.toFixed(2)} - ${newYMax.toFixed(2)}`);
+            console.log(`🔥 Previous Y-axis: ${currentYMin.toFixed(2)} - ${currentYMax.toFixed(2)}`);
+            console.log(`🔥 Visible data: ${visibleMin.toFixed(2)} - ${visibleMax.toFixed(2)} (${visibleData.length} points)`);
+            
+            // Store current zoom state
+            const currentXMin = xScale.min;
+            const currentXMax = xScale.max;
+            
+            // Find the chart index
+            const chartIndex = charts.indexOf(chart);
+            if (chartIndex >= 0) {
+                // Destroy the old chart
+                chart.destroy();
+                
+                // Recreate the chart with new Y-axis range
+                const canvas = document.getElementById(`chart-${chartIndex}`);
+                const ctx = canvas.getContext('2d');
+                
+                const newChart = createSingleChart(ctx, stationData, chartIndex, newYMin, newYMax);
+                
+                // Restore zoom state
+                setTimeout(() => {
+                    newChart.zoomScale('x', {min: currentXMin, max: currentXMax}, 'none');
+                }, 100);
+                
+                // Replace in charts array
+                charts[chartIndex] = newChart;
+                
+                console.log(`✅ Chart recreated with Y-axis: ${newChart.scales.y.min.toFixed(2)} - ${newChart.scales.y.max.toFixed(2)}`);
+            }
+        }
+    }
+}
+
+// ENHANCED: Create a single chart (extracted from createIndividualCharts)
+function createSingleChart(ctx, station, index, yMin = null, yMax = null) {
+    const values = station.data.map(d => d.y);
+    const dataMin = Math.min(...values);
+    const dataMax = Math.max(...values);
+    const range = dataMax - dataMin;
+    const padding = range * 0.1;
+    
+    // Use provided Y-axis range or calculate from data
+    const finalYMin = yMin !== null ? yMin : Math.max(0, dataMin - padding);
+    const finalYMax = yMax !== null ? yMax : dataMax + padding;
+    
+    const paramConfig = station.parameterConfig;
+    
+    console.log(`📈 Creating chart for ${station.siteName} with Y-axis: ${finalYMin.toFixed(2)} - ${finalYMax.toFixed(2)}`);
+    
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: station.parameterName,
+                data: station.data,
+                borderColor: station.color,
+                backgroundColor: station.color + '20',
+                fill: true,
+                tension: 0.3,
+                pointRadius: station.data.map((point, idx) => {
+                    const isAlert = station.alerts.some(alert => {
+                        const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+                        return timeDiff < 300000;
+                    });
+                    return isAlert ? 15 : 2;
+                }),
+                pointBackgroundColor: station.data.map((point, idx) => {
+                    const isAlert = station.alerts.some(alert => {
+                        const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+                        return timeDiff < 300000;
+                    });
+                    return isAlert ? '#ff4757' : station.color;
+                }),
+                pointBorderColor: station.data.map((point, idx) => {
+                    const isAlert = station.alerts.some(alert => {
+                        const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+                        return timeDiff < 300000;
+                    });
+                    return isAlert ? '#ffffff' : station.color;
+                }),
+                pointBorderWidth: station.data.map((point, idx) => {
+                    const isAlert = station.alerts.some(alert => {
+                        const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+                        return timeDiff < 300000;
+                    });
+                    return isAlert ? 4 : 1;
+                }),
+                pointHoverRadius: 10,
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    mode: 'nearest',
+                    intersect: false,
+                    callbacks: {
+                        title: function(context) {
+                            return moment(context[0].parsed.x).format('MMM DD, YYYY HH:mm');
+                        },
+                        label: function(context) {
+                            const point = station.data[context.dataIndex];
+                            const alerts = station.alerts.filter(alert => 
+                                Math.abs(alert.time.getTime() - point.x.getTime()) < 60000
+                            );
+                            
+                            let label = `${station.parameterName}: ${paramConfig.format(context.parsed.y)}`;
+                            if (alerts.length > 0) {
+                                label += ` ⚠️ ALERT: +${alerts[0].increase}% increase in ${alerts[0].minutesDiff}min`;
+                            }
+                            return label;
+                        }
+                    }
+                },
+                zoom: {
+                    zoom: {
+                        wheel: {
+                            enabled: true,
+                            speed: 0.05
+                        },
+                        pinch: {
+                            enabled: true
+                        },
+                        mode: 'x',
+                        onZoomComplete: function({chart}) {
+                            console.log('🔍 Chart zoomed:', new Date(chart.scales.x.min), 'to', new Date(chart.scales.x.max));
+                            
+                            const stationIndex = charts.indexOf(chart);
+                            if (stationIndex >= 0 && stationIndex < allStationData.length) {
+                                setTimeout(() => {
+                                    fetchAdditionalDataIfNeeded(chart, allStationData[stationIndex]);
+                                }, 500);
+                                
+                                setTimeout(() => {
+                                    updateYAxisForVisibleData(chart, allStationData[stationIndex]);
+                                }, 100);
+                            }
+                        }
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x',
+                        threshold: 20,
+                        onPanComplete: function({chart}) {
+                            console.log('👋 Chart panned:', new Date(chart.scales.x.min), 'to', new Date(chart.scales.x.max));
+                            
+                            const stationIndex = charts.indexOf(chart);
+                            if (stationIndex >= 0 && stationIndex < allStationData.length) {
+                                setTimeout(() => {
+                                    fetchAdditionalDataIfNeeded(chart, allStationData[stationIndex]);
+                                }, 500);
+                                
+                                setTimeout(() => {
+                                    updateYAxisForVisibleData(chart, allStationData[stationIndex]);
+                                }, 100);
+                            }
+                        }
+                    },
+                    limits: {
+                        x: {
+                            min: new Date('1889-01-01').getTime(),
+                            max: new Date().getTime()
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        displayFormats: {
+                            day: 'MMM DD',
+                            hour: 'MMM DD HH:mm'
+                        },
+                        tooltipFormat: 'MMM DD, YYYY HH:mm'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Date/Time (1889 - Present | Dynamic data loading)',
+                        font: { weight: 'bold', size: 11 }
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.05)'
+                    },
+                    ticks: {
+                        maxTicksLimit: 8
+                    }
+                },
+                y: {
+                    min: finalYMin,
+                    max: finalYMax,
+                    title: {
+                        display: true,
+                        text: station.parameterName,
+                        font: { weight: 'bold', size: 12 }
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.05)'
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return paramConfig.format(value);
+                        }
+                    }
+                }
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            hover: {
+                animationDuration: 200
+            },
+            animation: {
+                duration: 1500,
+                easing: 'easeInOutQuart'
+            }
+        }
+    });
+    
+    return chart;
+}
+// ENHANCED: Dynamic data fetching based on chart zoom/pan
+async function fetchAdditionalDataIfNeeded(chart, stationData) {
+    if (isDataFetching || displayMode !== 'timeseries') {
+        return false;
+    }
+    
+    const currentViewStart = new Date(chart.scales.x.min);
+    const currentViewEnd = new Date(chart.scales.x.max);
+    const currentDataStart = new Date(Math.min(...stationData.data.map(d => d.x.getTime())));
+    const currentDataEnd = new Date(Math.max(...stationData.data.map(d => d.x.getTime())));
+    
+    // Add buffer to prevent excessive refetching
+    const bufferHours = 6;
+    const startBuffer = new Date(currentDataStart.getTime() - (bufferHours * 60 * 60 * 1000));
+    const endBuffer = new Date(currentDataEnd.getTime() + (bufferHours * 60 * 60 * 1000));
+    
+    let needsNewData = false;
+    let newStartDate = null;
+    let newEndDate = null;
+    
+    // Check if we need data before current range
+    if (currentViewStart < startBuffer) {
+        const minDate = new Date('1889-01-01'); // USGS data availability limit
+        const stationMinDate = stationDataRanges[stationData.stationId]?.earliest || minDate;
+        
+        if (currentViewStart >= stationMinDate) {
+            newStartDate = new Date(Math.max(currentViewStart.getTime() - (7 * 24 * 60 * 60 * 1000), stationMinDate.getTime()));
+            newEndDate = currentDataStart;
+            needsNewData = true;
+        }
+    }
+    
+    // Check if we need data after current range
+    if (currentViewEnd > endBuffer) {
+        const maxDate = new Date(); // Current date/time limit
+        
+        if (currentViewEnd <= maxDate) {
+            newStartDate = currentDataEnd;
+            newEndDate = new Date(Math.min(currentViewEnd.getTime() + (7 * 24 * 60 * 60 * 1000), maxDate.getTime()));
+            needsNewData = true;
+        }
+    }
+    
+    if (needsNewData && newStartDate && newEndDate) {
+        console.log(`🔄 Fetching additional data for ${stationData.stationId}: ${newStartDate.toISOString().split('T')[0]} to ${newEndDate.toISOString().split('T')[0]}`);
+        
+        isDataFetching = true;
+        try {
+            const parameter = document.getElementById('parameterSelect').value;
+            const baseUrl = `https://waterservices.usgs.gov/nwis/iv/?format=json&sites=${stationData.stationId}&parameterCd=${parameter}&startDT=${newStartDate.toISOString().split('T')[0]}&endDT=${newEndDate.toISOString().split('T')[0]}`;
+            
+            const data = await fetchWithMultipleProxies(baseUrl);
+            
+            if (data.value && data.value.timeSeries && data.value.timeSeries.length > 0) {
+                const timeSeries = data.value.timeSeries[0];
+                const values = timeSeries.values[0].value;
+                
+                const newChartData = values
+                    .filter(v => v.value !== null && v.value !== undefined && !isNaN(parseFloat(v.value)))
+                    .map(v => ({
+                        x: new Date(v.dateTime),
+                        y: parseFloat(v.value)
+                    }));
+                
+                if (newChartData.length > 0) {
+                    // Merge new data with existing data and remove duplicates
+                    const allData = [...stationData.data, ...newChartData];
+                    const uniqueData = allData.reduce((acc, current) => {
+                        const existingIndex = acc.findIndex(item => item.x.getTime() === current.x.getTime());
+                        if (existingIndex === -1) {
+                            acc.push(current);
+                        }
+                        return acc;
+                    }, []);
+                    
+                    // Sort by timestamp
+                    uniqueData.sort((a, b) => a.x.getTime() - b.x.getTime());
+                    
+                    // Update station data
+                    stationData.data = uniqueData;
+                    
+                    // Update chart data
+                    chart.data.datasets[0].data = uniqueData;
+                    
+                    // ENHANCED: Recalculate Y-axis range for new data
+                    const allValues = uniqueData.map(d => d.y);
+                    const newMin = Math.min(...allValues);
+                    const newMax = Math.max(...allValues);
+                    const range = newMax - newMin;
+                    const padding = range * 0.1;
+                    
+                    chart.options.scales.y.min = Math.max(0, newMin - padding);
+                    chart.options.scales.y.max = newMax + padding;
+                    
+                    // Recalculate alerts for new data
+                    stationData.alerts = detectRapidIncrease(uniqueData);
+                    
+                    // Update point styling for alerts
+                    updateChartPointStyling(chart, stationData);
+                    
+                    // Update the chart
+                    chart.update('none'); // No animation for smoother experience
+                    
+                    console.log(`✅ Added ${newChartData.length} new data points for ${stationData.stationId}`);
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.error(`❌ Failed to fetch additional data for ${stationData.stationId}:`, error);
+        } finally {
+            isDataFetching = false;
+        }
+    }
+    
+    return false;
+}
+
+// ENHANCED: Update chart point styling after adding new data
+function updateChartPointStyling(chart, stationData) {
+    const dataset = chart.data.datasets[0];
+    
+    dataset.pointRadius = stationData.data.map((point, index) => {
+        const isAlert = stationData.alerts.some(alert => {
+            const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+            return timeDiff < 300000;
+        });
+        return isAlert ? 15 : 2;
+    });
+    
+    dataset.pointBackgroundColor = stationData.data.map((point, index) => {
+        const isAlert = stationData.alerts.some(alert => {
+            const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+            return timeDiff < 300000;
+        });
+        return isAlert ? '#ff4757' : stationData.color;
+    });
+    
+    dataset.pointBorderColor = stationData.data.map((point, index) => {
+        const isAlert = stationData.alerts.some(alert => {
+            const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+            return timeDiff < 300000;
+        });
+        return isAlert ? '#ffffff' : stationData.color;
+    });
+    
+    dataset.pointBorderWidth = stationData.data.map((point, index) => {
+        const isAlert = stationData.alerts.some(alert => {
+            const timeDiff = Math.abs(alert.time.getTime() - point.x.getTime());
+            return timeDiff < 300000;
+        });
+        return isAlert ? 4 : 1;
+    });
+}
 window.onParameterChange = function() {
     const parameter = document.getElementById('parameterSelect').value;
     console.log('📊 Parameter changed to:', parameter);
@@ -657,12 +1116,8 @@ function createIndividualCharts(stationData) {
         
         const ctx = document.getElementById(`chart-${index}`).getContext('2d');
         
-        const range = max - min;
-        const padding = range * 0.1;
-        const yMin = Math.max(0, min - padding);
-        const yMax = max + padding;
-        
-        console.log(`📈 Creating chart for ${station.siteName} with ${station.alerts.length} alerts`);
+        // ENHANCED: Don't calculate fixed Y-axis range - let it be dynamic
+        console.log(`📈 Creating chart for ${station.siteName} with dynamic Y-axis scaling`);
         
         const chart = new Chart(ctx, {
             type: 'line',
@@ -739,28 +1194,68 @@ function createIndividualCharts(stationData) {
                         zoom: {
                             wheel: {
                                 enabled: true,
+                                speed: 0.05 // ENHANCED: Reduced sensitivity (was 0.1)
                             },
                             pinch: {
                                 enabled: true
                             },
                             mode: 'x',
                             onZoomComplete: function({chart}) {
-                                console.log('🔍 Chart zoomed:', chart.scales.x.min, 'to', chart.scales.x.max);
+                                console.log('🔍 Chart zoomed:', new Date(chart.scales.x.min), 'to', new Date(chart.scales.x.max));
+                                
+                                // ENHANCED: Fetch additional data if needed
+                                const stationIndex = charts.indexOf(chart);
+                                if (stationIndex >= 0 && stationIndex < allStationData.length) {
+                                    setTimeout(() => {
+                                        fetchAdditionalDataIfNeeded(chart, allStationData[stationIndex]);
+                                    }, 500); // Small delay to prevent excessive calls
+                                    
+                                    // ENHANCED: Update Y-axis for currently visible data
+                                    setTimeout(() => {
+                                        updateYAxisForVisibleData(chart, allStationData[stationIndex]);
+                                    }, 100); // Quick update for Y-axis
+                                    
+                                    // ENHANCED: Force Y-axis recalculation after a longer delay
+                                    setTimeout(() => {
+                                        forceYAxisRecalculation(chart, allStationData[stationIndex]);
+                                    }, 1000); // Secondary attempt after data settling
+                                    
+                                    // ENHANCED: Force Y-axis recalculation after a longer delay
+                                    setTimeout(() => {
+                                        forceYAxisRecalculation(chart, allStationData[stationIndex]);
+                                    }, 1000); // Secondary attempt after data settling
+                                }
                             }
                         },
                         pan: {
                             enabled: true,
                             mode: 'x',
+                            threshold: 20, // ENHANCED: Increased threshold for less sensitive panning
                             onPanComplete: function({chart}) {
-                                console.log('👋 Chart panned:', chart.scales.x.min, 'to', chart.scales.x.max);
+                                console.log('👋 Chart panned:', new Date(chart.scales.x.min), 'to', new Date(chart.scales.x.max));
+                                
+                                // ENHANCED: Fetch additional data if needed
+                                const stationIndex = charts.indexOf(chart);
+                                if (stationIndex >= 0 && stationIndex < allStationData.length) {
+                                    setTimeout(() => {
+                                        fetchAdditionalDataIfNeeded(chart, allStationData[stationIndex]);
+                                    }, 500); // Small delay to prevent excessive calls
+                                    
+                                    // ENHANCED: Update Y-axis for currently visible data
+                                    setTimeout(() => {
+                                        updateYAxisForVisibleData(chart, allStationData[stationIndex]);
+                                    }, 100); // Quick update for Y-axis
+                                }
                             }
                         },
+                        // ENHANCED: Set limits based on data availability
                         limits: {
                             x: {
-                                min: Math.min(...station.data.map(d => d.x.getTime())),
-                                max: Math.max(...station.data.map(d => d.x.getTime()))
+                                min: new Date('1889-01-01').getTime(), // USGS data availability start
+                                max: new Date().getTime() // Current date/time
                             }
                         }
+                        // ENHANCED: Removed limits to allow panning/zooming beyond initial date range
                     }
                 },
                 scales: {
@@ -775,8 +1270,8 @@ function createIndividualCharts(stationData) {
                         },
                         title: {
                             display: true,
-                            text: 'Date/Time',
-                            font: { weight: 'bold', size: 12 }
+                            text: 'Date/Time (1889 - Present | Dynamic data loading)',
+                            font: { weight: 'bold', size: 11 }
                         },
                         grid: {
                             color: 'rgba(0,0,0,0.05)'
@@ -784,10 +1279,9 @@ function createIndividualCharts(stationData) {
                         ticks: {
                             maxTicksLimit: 8
                         }
+                        // ENHANCED: No hard min/max - let chart auto-scale to data, limits only apply to zoom plugin
                     },
                     y: {
-                        min: yMin,
-                        max: yMax,
                         title: {
                             display: true,
                             text: station.parameterName,
@@ -801,6 +1295,7 @@ function createIndividualCharts(stationData) {
                                 return paramConfig.format(value);
                             }
                         }
+                        // ENHANCED: No fixed min/max - let Y-axis auto-scale and update dynamically
                     }
                 },
                 interaction: {
