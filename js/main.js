@@ -1052,7 +1052,16 @@ function createIndividualCharts(stationData) {
                 }
             }
         });
-        
+
+        // chartjs-plugin-zoom's own "original range" tracking can't be trusted here: renderVisibleWindow
+        // reassigns dataset.data to a decimated, visible-window-only subset on every zoom/pan render, and
+        // since x has no explicit min/max, Chart.js auto-fits x to that shrunken dataset on each update —
+        // which the plugin then treats as the new "original" baseline, permanently drifting on every pan/zoom.
+        // Capture the true full-data range ourselves (from the full station.data, not the decimated render
+        // data) so Reset Zoom has a stable target independent of the plugin's corrupted tracking.
+        const fullRange = getDataTimeRange(station.data);
+        chart._originalXRange = { min: fullRange.min.getTime(), max: fullRange.max.getTime() };
+
         // Add zoom reset button
         const resetButton = document.createElement('button');
         resetButton.textContent = '🔍 Reset Zoom';
@@ -1071,13 +1080,16 @@ function createIndividualCharts(stationData) {
             box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
             z-index: 1000;
         `;
-        // resetZoom() has no completion callback (unlike onZoomComplete/onPanComplete), so
-        // chart.scales.x isn't guaranteed to reflect the reset range on the very next line —
-        // defer a tick so handleChartViewChange reads the settled post-reset scale. Routing
-        // through handleChartViewChange (not renderVisibleWindow directly) also backfills any
-        // data the reset range needs but isn't loaded yet, same as zoom/pan do.
+        // Use our own captured _originalXRange rather than chart.resetZoom() — the plugin's
+        // internal "original range" drifts to match whatever's currently rendered (see comment
+        // where _originalXRange is set above), so resetZoom() alone stops working after any
+        // pan/zoom. zoomScale has no completion callback, so chart.scales.x isn't guaranteed to
+        // reflect the change on the very next line — defer a tick so handleChartViewChange reads
+        // the settled post-reset scale. Routing through handleChartViewChange (not
+        // renderVisibleWindow directly) also backfills any data the reset range needs but isn't
+        // loaded yet, same as zoom/pan do.
         resetButton.onclick = function() {
-            chart.resetZoom();
+            chart.zoomScale('x', chart._originalXRange, 'none');
             setTimeout(() => handleChartViewChange(chart), 0);
             console.log('🔄 Chart zoom reset for', station.siteName);
         };
@@ -1087,7 +1099,7 @@ function createIndividualCharts(stationData) {
 
         // Add double-click zoom reset
         ctx.canvas.addEventListener('dblclick', function() {
-            chart.resetZoom();
+            chart.zoomScale('x', chart._originalXRange, 'none');
             setTimeout(() => handleChartViewChange(chart), 0);
             console.log('🔄 Chart zoom reset via double-click for', station.siteName);
         });
