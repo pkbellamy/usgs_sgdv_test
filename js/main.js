@@ -159,16 +159,22 @@ function decimateMinMax(data, maxPoints) {
 // `data`. `data` must be the exact array assigned to the dataset (i.e. already decimated)
 // so the styles stay index-aligned with what's actually rendered.
 function buildPointStyles(data, alerts, color) {
-    const isAlertPoint = (point) => alerts.some(alert =>
-        Math.abs(alert.time.getTime() - point.x.getTime()) < 300000
-    );
+    const pointRadius = new Array(data.length);
+    const pointBackgroundColor = new Array(data.length);
+    const pointBorderColor = new Array(data.length);
+    const pointBorderWidth = new Array(data.length);
 
-    return {
-        pointRadius: data.map(point => isAlertPoint(point) ? 15 : 2),
-        pointBackgroundColor: data.map(point => isAlertPoint(point) ? '#ff4757' : color),
-        pointBorderColor: data.map(point => isAlertPoint(point) ? '#ffffff' : color),
-        pointBorderWidth: data.map(point => isAlertPoint(point) ? 4 : 1)
-    };
+    for (let i = 0; i < data.length; i++) {
+        const isAlertPoint = alerts.some(alert =>
+            Math.abs(alert.time.getTime() - data[i].x.getTime()) < 300000
+        );
+        pointRadius[i] = isAlertPoint ? 15 : 2;
+        pointBackgroundColor[i] = isAlertPoint ? '#ff4757' : color;
+        pointBorderColor[i] = isAlertPoint ? '#ffffff' : color;
+        pointBorderWidth[i] = isAlertPoint ? 4 : 1;
+    }
+
+    return { pointRadius, pointBackgroundColor, pointBorderColor, pointBorderWidth };
 }
 
 // Render the currently visible x-window: filter full-resolution station data to the chart's
@@ -249,19 +255,37 @@ function getDataTimeRange(data) {
     return { min: new Date(min), max: new Date(max) };
 }
 
-// Merge new points into existing data, de-duping by timestamp, in O(n) instead of the
-// previous O(n^2) findIndex-per-point scan (which got progressively slower as a station's
-// history grew from repeated pans). On a timestamp collision, existing data wins — matches
-// the old reduce/findIndex behavior and avoids a value the user already saw (and any alert
-// tied to it) silently changing underneath them from a later, narrower backfill fetch.
+// Merge new points into existing data, de-duping by timestamp. existingData is already sorted
+// (this function maintains that invariant), so instead of re-sorting the whole accumulated
+// array on every backfill fetch, only sort the (much smaller) newData batch, then do a single
+// O(n + k) sorted merge — avoids paying O(n log n) again over a station's full history every
+// time a pan/zoom pulls in one more page of data. On a timestamp collision, existing data wins
+// — matches the old reduce/findIndex behavior and avoids a value the user already saw (and any
+// alert tied to it) silently changing underneath them from a later, narrower backfill fetch.
 function mergeStationData(existingData, newData) {
-    const byTime = new Map(existingData.map(point => [point.x.getTime(), point]));
-    for (const point of newData) {
-        if (!byTime.has(point.x.getTime())) {
-            byTime.set(point.x.getTime(), point);
+    if (newData.length === 0) return existingData;
+
+    const sortedNew = [...newData].sort((a, b) => a.x.getTime() - b.x.getTime());
+    const result = [];
+    let i = 0, j = 0;
+
+    while (i < existingData.length && j < sortedNew.length) {
+        const existingTime = existingData[i].x.getTime();
+        const newTime = sortedNew[j].x.getTime();
+
+        if (existingTime < newTime) {
+            result.push(existingData[i++]);
+        } else if (existingTime > newTime) {
+            result.push(sortedNew[j++]);
+        } else {
+            result.push(existingData[i++]); // collision: existing wins
+            j++;
         }
     }
-    return Array.from(byTime.values()).sort((a, b) => a.x.getTime() - b.x.getTime());
+    while (i < existingData.length) result.push(existingData[i++]);
+    while (j < sortedNew.length) result.push(sortedNew[j++]);
+
+    return result;
 }
 
 // ENHANCED: Dynamic data fetching based on chart zoom/pan
