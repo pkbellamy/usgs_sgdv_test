@@ -186,6 +186,28 @@ function buildPointStyles(data, alerts, color) {
     return { pointRadius, pointBackgroundColor, pointBorderColor, pointBorderWidth };
 }
 
+// Update the Latest/Average/Minimum/Maximum stat-value elements for a chart (set at creation
+// time on chart._statEls, see createIndividualCharts) so they track the current zoom window
+// instead of staying fixed to the full dataset. Pass stats: null to show a placeholder when
+// the visible window has no data at all.
+function setStatsDisplay(chart, stats, parameterConfig) {
+    const els = chart._statEls;
+    if (!els) return;
+
+    if (!stats) {
+        els.latest.textContent = '—';
+        els.avg.textContent = '—';
+        els.min.textContent = '—';
+        els.max.textContent = '—';
+        return;
+    }
+
+    els.latest.textContent = parameterConfig.format(stats.latest);
+    els.avg.textContent = parameterConfig.format(stats.average);
+    els.min.textContent = parameterConfig.format(stats.min);
+    els.max.textContent = parameterConfig.format(stats.max);
+}
+
 // Render the currently visible x-window: filter full-resolution station data to the chart's
 // visible range, rescale Y to fit it, decimate it for drawing, and push it into the chart.
 // This is the single path used after any zoom, pan, reset, data fetch, or parameter switch.
@@ -207,14 +229,17 @@ function renderVisibleWindow(chart, stationData) {
         dataset.data = [];
         Object.assign(dataset, buildPointStyles([], stationData.alerts, stationData.color));
         chart.update('none');
+        setStatsDisplay(chart, null);
         return;
     }
 
     let visibleMin = Infinity;
     let visibleMax = -Infinity;
+    let visibleSum = 0;
     for (const point of visibleData) {
         if (point.y < visibleMin) visibleMin = point.y;
         if (point.y > visibleMax) visibleMax = point.y;
+        visibleSum += point.y;
     }
     const range = visibleMax - visibleMin;
     const padding = Math.max(range * 0.1, 0.1);
@@ -222,6 +247,15 @@ function renderVisibleWindow(chart, stationData) {
     const paddedMin = visibleMin - padding;
     chart.options.scales.y.min = stationData.parameterConfig.nonNegative ? Math.max(0, paddedMin) : paddedMin;
     chart.options.scales.y.max = visibleMax + padding;
+
+    // visibleData preserves stationData.data's sorted-by-time order (filter doesn't reorder),
+    // so the last entry is the latest point within the current zoom window.
+    setStatsDisplay(chart, {
+        latest: visibleData[visibleData.length - 1].y,
+        average: visibleSum / visibleData.length,
+        min: visibleMin,
+        max: visibleMax
+    }, stationData.parameterConfig);
 
     const renderData = decimateMinMax(visibleData, MAX_RENDERED_POINTS);
     const dataset = chart.data.datasets[0];
@@ -968,19 +1002,19 @@ function createIndividualCharts(stationData) {
                 ${alertsHtml}
                 <div class="stats-info">
                     <div class="stat-item">
-                        <div class="stat-value">${paramConfig.format(latest)}</div>
+                        <div class="stat-value" id="stat-latest-${index}">${paramConfig.format(latest)}</div>
                         <div class="stat-label">Latest</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value">${paramConfig.format(avg)}</div>
+                        <div class="stat-value" id="stat-avg-${index}">${paramConfig.format(avg)}</div>
                         <div class="stat-label">Average</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value">${paramConfig.format(min)}</div>
+                        <div class="stat-value" id="stat-min-${index}">${paramConfig.format(min)}</div>
                         <div class="stat-label">Minimum</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value">${paramConfig.format(max)}</div>
+                        <div class="stat-value" id="stat-max-${index}">${paramConfig.format(max)}</div>
                         <div class="stat-label">Maximum</div>
                     </div>
                 </div>
@@ -1181,6 +1215,15 @@ function createIndividualCharts(stationData) {
             setTimeout(() => handleChartViewChange(chart), 0);
             console.log('🔄 Chart zoom reset via double-click for', station.siteName);
         });
+
+        // Stable references so renderVisibleWindow can update the stats bar in place on every
+        // zoom/pan without re-running the chart-header innerHTML template.
+        chart._statEls = {
+            latest: document.getElementById(`stat-latest-${index}`),
+            avg: document.getElementById(`stat-avg-${index}`),
+            min: document.getElementById(`stat-min-${index}`),
+            max: document.getElementById(`stat-max-${index}`)
+        };
 
         charts.push(chart);
 
