@@ -14,9 +14,15 @@ file contents (grep + Read) before being written down here. Findings are split i
 and **Additional candidates** (raised by the review agents but not yet individually
 re-verified — worth a look but lower confidence / lower priority).
 
-Nothing below has been fixed yet. This file exists so the review survives a context
-clear — resume by working through "Verified findings" in order, then decide whether
-"Additional candidates" are worth pursuing.
+**Update (2026-08-15):** All 11 verified findings below have been fixed and
+manually verified in-browser (real USGS fetch through the CORS proxy, parameter
+switching, marker dedup, XSS escaping, divide-by-zero guard, SRI hashes). Each is
+marked `✅ RESOLVED` with a one-line note on the fix. "Additional candidates" are
+unchanged — still not individually re-verified or fixed, except the error-message
+escaping item, which was closed as a side effect of fixing #1.
+
+This file is kept (not deleted) per request, as a record of what was found and
+resolved.
 
 ---
 
@@ -25,6 +31,10 @@ clear — resume by working through "Verified findings" in order, then decide wh
 ### 1. XSS via unescaped `siteName` from USGS data routed through untrusted proxies
 **Files:** `js/main.js:506`, `js/main.js:781`, `js/main.js:912`
 **Verdict:** CONFIRMED (read all three sink sites directly)
+**Status:** ✅ RESOLVED (2026-08-15) — added `escapeHtml()` helper, applied at all
+three `siteName` sink sites and also at the error-message sinks (`js/main.js:741,
+743`, the related "Additional candidates" item below). Verified live: an
+HTML-bearing `siteName` now renders as literal escaped text in the chart title.
 
 `station.siteName` originates from `timeSeries.sourceInfo.siteName` in the JSON
 response (`js/main.js:655`) — but that response is fetched **through** one of two
@@ -53,6 +63,10 @@ would close this.
 ### 2. No Subresource Integrity on core CDN scripts
 **File:** `index.html:9-13`
 **Verdict:** CONFIRMED (read the `<head>` directly)
+**Status:** ✅ RESOLVED (2026-08-15) — downloaded each pinned CDN file directly and
+computed real sha384 SRI hashes (not guessed), added `integrity`/`crossorigin` to
+all four `<script>` tags. Verified live: page loads and all four libraries
+initialize cleanly with no integrity-mismatch errors in console.
 
 Chart.js, chartjs-plugin-zoom, moment.js, and chartjs-adapter-moment are all loaded
 from `cdnjs.cloudflare.com` with plain `<script src=...>` — no `integrity=`/
@@ -72,6 +86,9 @@ hashes on its own site for every hosted file/version.
 ### 3. `Math.min(...values)`/`Math.max(...values)` spread can throw on large datasets
 **File:** `js/main.js:884-885` (inside `createIndividualCharts`)
 **Verdict:** CONFIRMED (read the function; confirmed `getDataTimeRange` exists specifically to avoid this)
+**Status:** ✅ RESOLVED (2026-08-15) — replaced both spreads with a single manual
+loop computing min/max/sum in one pass. Verified live: chart stats row (Latest/
+Average/Minimum/Maximum) renders correctly from real fetched data.
 
 ```js
 const min = Math.min(...values);
@@ -101,6 +118,9 @@ or reuse/generalize that helper to also return y min/max in one pass.
 ### 4. `calculateTrend` divides by zero when the first sampled value is 0
 **File:** `js/main.js:593` (function starts `js/main.js:586`)
 **Verdict:** CONFIRMED (read the function; confirmed no zero-guard, contrasted with `detectRapidIncrease`'s guard)
+**Status:** ✅ RESOLVED (2026-08-15) — added a `firstValue === 0` guard returning
+`{ direction: 'stable', text: 'N/A' }`. Verified directly: `calculateTrend` on a
+zero-baseline series now returns `"N/A"` instead of `"Rising (+Infinity%)"`.
 
 ```js
 const percentChange = ((lastValue - firstValue) / firstValue) * 100;
@@ -124,6 +144,10 @@ the baseline is zero).
 ### 5. Live parameter-dropdown read during backfill can merge wrong-parameter data into the visible chart
 **File:** `js/main.js:340` (inside `fetchAdditionalDataIfNeeded`)
 **Verdict:** PLAUSIBLE (mechanism traced and timing window confirmed real; requires a specific race to trigger, not reproduced live)
+**Status:** ✅ RESOLVED (2026-08-15) — tagged each `stationData` with the
+`parameterCode` it was fetched for at creation time; `fetchAdditionalDataIfNeeded`
+now reads `stationData.parameterCode` instead of the live DOM value. Verified live:
+`allStationData[0].parameterCode` correctly tracks each parameter switch.
 
 ```js
 const parameter = document.getElementById('parameterSelect').value;
@@ -155,6 +179,10 @@ merging.
 ### 6. `handleChartViewChange` doesn't re-validate its chart after awaiting a fetch
 **File:** `js/main.js:227-238`
 **Verdict:** PLAUSIBLE (gap confirmed by reading; exact Chart.js post-destroy throw behavior not empirically verified)
+**Status:** ✅ RESOLVED (2026-08-15) — added `if (charts.indexOf(chart) < 0) return;`
+after the `await fetchAdditionalDataIfNeeded(...)` call, before
+`renderVisibleWindow`. No live repro of the original race was needed to verify the
+fix; the guard is unconditionally correct given the destroy-then-rebuild pattern.
 
 ```js
 async function handleChartViewChange(chart) {
@@ -186,6 +214,11 @@ no longer live.
 ### 7. Map markers accumulate without cleanup on re-fetch / parameter switch
 **File:** `js/main.js:512` (`addStationToMap`), compare `js/main.js:96-107` (`removeStation`, the only place markers are ever removed)
 **Verdict:** CONFIRMED (read `addStationToMap` and confirmed no marker removal happens outside explicit user-initiated `removeStation`)
+**Status:** ✅ RESOLVED (2026-08-15) — `addStationToMap` now removes any existing
+marker for the same `stationId` (same pattern as `removeStation`) before adding the
+new one, making it safe to call repeatedly. Verified live: switched parameters 3x
+for the same station, `stationMarkers.length` stayed at 1 throughout. Fixed
+together with #11 since both share this function.
 
 `addStationToMap` always does `stationMarkers.push({...})` for a fresh Leaflet
 marker — there's no check for (or removal of) an existing marker for the same
@@ -207,6 +240,10 @@ the new one — same pattern already used in `removeStation`.
 ### 8. `chartsGrid` inline `display:block` never resets to the CSS grid layout
 **File:** `js/main.js:627` (sets `display:block`), compare `js/main.js:52` (`setDisplayMode`, the only place `display:grid` is set) and `css/styles.css:470-475` (the `.charts-grid` class, which specifies `display: grid`)
 **Verdict:** CONFIRMED (read all three sites; confirmed inline style beats the class rule)
+**Status:** ✅ RESOLVED (2026-08-15) — `createIndividualCharts` now explicitly sets
+`chartsGrid.style.display = 'grid'` right where it populates the grid, the single
+path used on both initial fetch and any rebuild. Verified live: 1-station fetch
+renders in the responsive grid layout, not stacked block flow.
 
 `fetchDataAsync` sets `chartsGrid.style.display = 'block'` for the loading spinner
 state (line 627). Nothing resets it to `'grid'` afterward — the only code path that
@@ -231,6 +268,10 @@ hidden states, not `grid` — that's what the stylesheet is for).
 ### 9. Mode-switch buttons are not keyboard-operable
 **File:** `index.html:72`, `index.html:76`
 **Verdict:** CONFIRMED (read the markup directly; confirmed no `role`/`tabindex`/keydown handler anywhere)
+**Status:** ✅ RESOLVED (2026-08-15) — converted both `<div>`s to
+`<button type="button">`, kept existing `id`/`class`/`onclick`; reset button UA
+styling and added a `:focus-visible` ring in `css/styles.css`. Verified live via
+keyboard-only tabbing: both buttons receive a visible focus ring in tab order.
 
 ```html
 <div class="mode-button active" id="timeSeriesBtn" onclick="setDisplayMode('timeseries')">
@@ -254,6 +295,14 @@ keyboard/AT support for free), or add `role="button" tabindex="0"` plus a
 ### 10. Y-axis is unconditionally floored at 0, clipping negative Temperature readings
 **File:** `js/main.js:213` (inside `renderVisibleWindow`)
 **Verdict:** CONFIRMED (read the line; confirmed Temperature is a supported parameter with values that can legitimately go negative)
+**Status:** ✅ RESOLVED (2026-08-15, fixed in a follow-up pass after this file was
+initially marked complete — it had been missed from the first implementation pass)
+— added a `nonNegative` flag per parameter in `parameterConfigs` (`true` for
+Discharge/Gage Height/Turbidity, `false` for Temperature), and `renderVisibleWindow`
+now only applies the `Math.max(0, ...)` floor when `stationData.parameterConfig.
+nonNegative` is true. Verified directly: a synthetic Temperature series with
+negative values now renders with `scales.y.min` below zero, while a Discharge
+series with a near-zero low still floors correctly at 0.
 
 ```js
 chart.options.scales.y.min = Math.max(0, visibleMin - padding);
@@ -273,6 +322,39 @@ not for Temperature).
 **Fix direction:** only apply the `Math.max(0, ...)` floor for parameters known to
 be non-negative (e.g., check `station.parameterConfig` or the parameter code),
 or drop the floor and let the padding-based min stand for all parameters.
+
+---
+
+### 11. Map marker not updated when a pan/zoom backfill discovers new alerts
+**File:** `js/main.js:372` (`addStationToMap` only called from the initial fetch at `~691`), compare `js/main.js:539` (`detectRapidIncrease`, which recomputes `stationData.alerts` inside `fetchAdditionalDataIfNeeded`)
+**Verdict:** CONFIRMED — found by a follow-up `/code-review high` pass on 2026-08-14 (repo unchanged since `da25081`); not caught by the original ad-hoc review
+**Status:** ✅ RESOLVED (2026-08-15) — `fetchAdditionalDataIfNeeded` now calls
+`addStationToMap` again after recomputing `stationData.alerts`, passing the
+station's existing siteName/lat/long/color and the fresh alert state. Safe to call
+repeatedly because of the #7 dedup fix. Fixed together with #7.
+
+`addStationToMap` runs exactly once, during the initial fetch. When
+`fetchAdditionalDataIfNeeded` later recomputes `stationData.alerts` after a
+pan/zoom-triggered backfill (`js/main.js:372`), nothing re-runs the marker-icon/
+popup logic — the Leaflet marker placed at initial fetch time is never touched
+again.
+
+**Failure scenario:** user zooms/pans a Discharge chart into older data and a
+rapid-increase alert is detected there (chart points turn red per
+`buildPointStyles`), but the corresponding map marker keeps showing its original
+non-alert color/popup — the map silently disagrees with the chart in a
+flood-monitoring app.
+
+**Fix direction:** after `fetchAdditionalDataIfNeeded` updates `stationData.alerts`,
+re-run (or factor out and re-invoke) the marker styling/popup-content logic for that
+station's existing marker instead of only doing it at initial-fetch time.
+
+**Cross-check note:** the original ad-hoc review's finding #7 (map markers
+*accumulating* without cleanup on repeated parameter switches, `js/main.js:512`) was
+*not* reproduced by this follow-up pass — the two reviews caught two different
+marker-lifecycle bugs in the same area. Both are believed real; neither review
+caught both. Worth a dedicated look at `addStationToMap`/marker lifecycle as a
+whole rather than treating these as isolated one-line fixes.
 
 ---
 
@@ -318,6 +400,10 @@ but treat as "reported, not confirmed" until read directly.
   `response.statusText` (from the untrusted proxy response, `~842`) does flow into
   this same sink unescaped — same pattern as finding #1, lower current risk since
   the content is more constrained.
+  **✅ RESOLVED (2026-08-15)** — closed alongside finding #1: the fixed,
+  developer-authored "Proxy Service Error" HTML fragment is kept as-is (it's safe,
+  static markup), but any other `error.message` is now passed through `escapeHtml()`
+  before interpolation.
 - **No client-side check that start date ≤ end date** (`js/main.js:~617-624`) —
   correctness/UX gap, not a security issue; produces a confusing empty-result error
   from USGS instead of a clear inline validation message.
@@ -331,9 +417,18 @@ but treat as "reported, not confirmed" until read directly.
 
 ## Next step when resuming
 
-Work through "Verified findings" 1-10 in order (already ranked by severity); decide
-per-item whether to fix now or explicitly defer, the same way the two efficiency
-items were triaged and closed out in the previous zoom/pan session. Then decide
-whether any "Additional candidates" are worth a proper look. Delete or fold this
-file into commit messages once its contents are addressed, following the same
-pattern used for `ZOOM_WORK_NOTES.md` earlier this project.
+All 11 "Verified findings" are now ✅ RESOLVED as of 2026-08-15 (see per-item Status
+lines above), including #10, which was missed in the first implementation pass and
+fixed in a follow-up before this file was updated. The "Unescaped error message"
+item under "Additional candidates" was also resolved as a side effect of fixing #1.
+
+Remaining "Additional candidates" are still open and not yet individually
+re-verified: decimation dropping alert points, dead `stationDataRanges` state,
+unsorted initial fetch, no CSP meta tag, public CORS proxy trust, trend-indicator
+color contrast, and missing `<label>` association for `#stationInput`/
+`#parameterSelect`. Worth a look in a future session, lower priority than what's
+already fixed here.
+
+This file is being kept (not deleted) as a record of what was found and resolved,
+per user request — unlike the earlier `ZOOM_WORK_NOTES.md` pattern where the notes
+file was deleted once addressed.

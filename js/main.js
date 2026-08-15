@@ -12,12 +12,21 @@ const VIEW_CHANGE_DEBOUNCE_MS = 200;
 const MAX_RENDERED_POINTS = 2000; // cap on points handed to Chart.js per render pass
 const colors = ['#667eea', '#764ba2', '#28a745', '#20c997'];
 
+// Escape a string before interpolating into innerHTML/bindPopup — required for any
+// value sourced from the USGS API responses, which are fetched through untrusted
+// third-party CORS proxies and could return attacker-controlled markup.
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+
 // Parameter configurations for better labeling and formatting
 const parameterConfigs = {
-    '00060': { name: 'Discharge', unit: 'ft³/s', format: (val) => val.toFixed(1) },
-    '00065': { name: 'Gage Height', unit: 'ft', format: (val) => val.toFixed(2) },
-    '00010': { name: 'Temperature', unit: '°C', format: (val) => val.toFixed(1) },
-    '63680': { name: 'Turbidity', unit: 'NTU', format: (val) => val.toFixed(1) }
+    '00060': { name: 'Discharge', unit: 'ft³/s', format: (val) => val.toFixed(1), nonNegative: true },
+    '00065': { name: 'Gage Height', unit: 'ft', format: (val) => val.toFixed(2), nonNegative: true },
+    '00010': { name: 'Temperature', unit: '°C', format: (val) => val.toFixed(1), nonNegative: false },
+    '63680': { name: 'Turbidity', unit: 'NTU', format: (val) => val.toFixed(1), nonNegative: true }
 };
 
 // Global functions that need to be accessible from HTML onclick attributes
@@ -210,7 +219,8 @@ function renderVisibleWindow(chart, stationData) {
     const range = visibleMax - visibleMin;
     const padding = Math.max(range * 0.1, 0.1);
 
-    chart.options.scales.y.min = Math.max(0, visibleMin - padding);
+    const paddedMin = visibleMin - padding;
+    chart.options.scales.y.min = stationData.parameterConfig.nonNegative ? Math.max(0, paddedMin) : paddedMin;
     chart.options.scales.y.max = visibleMax + padding;
 
     const renderData = decimateMinMax(visibleData, MAX_RENDERED_POINTS);
@@ -233,6 +243,10 @@ async function handleChartViewChange(chart) {
     if (displayMode === 'timeseries') {
         await fetchAdditionalDataIfNeeded(chart, stationData);
     }
+
+    // Re-validate after the await: a parameter switch (or station add/remove) can have
+    // destroyed this chart via createIndividualCharts while the fetch was in flight.
+    if (charts.indexOf(chart) < 0) return;
 
     renderVisibleWindow(chart, stationData);
 }
@@ -337,7 +351,7 @@ async function fetchAdditionalDataIfNeeded(chart, stationData) {
     fetchingStationIds.add(stationData.stationId);
     let addedAny = false;
     try {
-        const parameter = document.getElementById('parameterSelect').value;
+        const parameter = stationData.parameterCode;
 
         for (const range of ranges) {
             console.log(`🔄 Fetching additional data for ${stationData.stationId}: ${range.start.toISOString().split('T')[0]} to ${range.end.toISOString().split('T')[0]}`);
@@ -370,6 +384,17 @@ async function fetchAdditionalDataIfNeeded(chart, stationData) {
             // is handled by the caller via renderVisibleWindow, not here — keeps the fetch
             // layer only responsible for updating stationData, not drawing.
             stationData.alerts = detectRapidIncrease(stationData.data);
+
+            // Keep the map marker's color/popup in sync — a backfill can discover alerts
+            // that didn't exist in the originally-fetched window.
+            await addStationToMap(
+                stationData.stationId,
+                stationData.siteName,
+                stationData.latitude,
+                stationData.longitude,
+                stationData.color,
+                stationData.alerts.length > 0
+            );
         }
     } catch (error) {
         console.error(`❌ Failed to fetch additional data for ${stationData.stationId}:`, error);
@@ -484,7 +509,16 @@ function fitMapToStations() {
 // Add station marker to map
 async function addStationToMap(stationId, siteName, latitude, longitude, color, hasAlerts = false) {
     if (!map) return;
-    
+
+    // Replace, don't stack: this can be called more than once for the same station
+    // (parameter switches, or a backfill fetch that discovers new alerts), so remove
+    // any existing marker for this stationId first — same pattern as removeStation.
+    const existing = stationMarkers.find(m => m.stationId === stationId);
+    if (existing) {
+        map.removeLayer(existing.marker);
+        stationMarkers = stationMarkers.filter(m => m.stationId !== stationId);
+    }
+
     const icon = L.divIcon({
         className: 'custom-div-icon',
         html: `<div style="
@@ -503,7 +537,7 @@ async function addStationToMap(stationId, siteName, latitude, longitude, color, 
     const marker = L.marker([latitude, longitude], { icon }).addTo(map);
     marker.bindPopup(`
         <div style="text-align: center;">
-            <strong>${siteName}</strong><br>
+            <strong>${escapeHtml(siteName)}</strong><br>
             Station ID: ${stationId}<br>
             ${hasAlerts ? '<span style="color: #ff4757; font-weight: bold;">⚠️ ALERT: Rapid increase detected!</span>' : ''}
         </div>
@@ -589,7 +623,11 @@ function calculateTrend(data) {
     const recentPoints = data.slice(-Math.min(10, data.length));
     const firstValue = recentPoints[0].y;
     const lastValue = recentPoints[recentPoints.length - 1].y;
-    
+
+    if (firstValue === 0) {
+        return { direction: 'stable', text: 'N/A' };
+    }
+
     const percentChange = ((lastValue - firstValue) / firstValue) * 100;
     
     if (percentChange > 5) {
@@ -630,7 +668,7 @@ async function fetchDataAsync() {
     
     try {
         const stationData = [];
-        const paramConfig = parameterConfigs[parameter] || { name: 'Unknown Parameter', unit: '', format: (val) => val.toFixed(2) };
+        const paramConfig = parameterConfigs[parameter] || { name: 'Unknown Parameter', unit: '', format: (val) => val.toFixed(2), nonNegative: true };
         const parameterName = `${paramConfig.name} (${paramConfig.unit})`;
         
         for (let i = 0; i < selectedStations.length; i++) {
@@ -682,6 +720,7 @@ async function fetchDataAsync() {
                             longitude: longitude,
                             data: chartData,
                             color: colors[i],
+                            parameterCode: parameter,
                             parameterName: parameterName,
                             parameterConfig: paramConfig,
                             alerts: alerts,
@@ -727,7 +766,10 @@ async function fetchDataAsync() {
         }
         
     } catch (error) {
-        let errorMessage = error.message;
+        // This branch's message is a fixed, developer-authored HTML fragment — safe to
+        // interpolate as-is. Any other error.message (including proxy statusText, which
+        // flows in from an untrusted third-party response) is plain text and must be escaped.
+        let errorMessage;
         if (error.message.includes('Failed to fetch') || error.message.includes('CORS') || error.message.includes('proxy')) {
             errorMessage = `
                 <div class="cors-info">
@@ -735,8 +777,10 @@ async function fetchDataAsync() {
                     All CORS proxy services failed. Please try again in a few minutes.
                 </div>
             `;
+        } else {
+            errorMessage = escapeHtml(error.message);
         }
-        
+
         if (displayMode === 'current') {
             currentValuesGrid.innerHTML = `<div class="error">Error: ${errorMessage}</div>`;
         } else {
@@ -778,7 +822,7 @@ function createCurrentValuesDisplay(stationData) {
         cardDiv.className = 'current-value-card';
         cardDiv.innerHTML = `
             <div class="station-header">
-                <div class="station-name">${station.siteName}</div>
+                <div class="station-name">${escapeHtml(station.siteName)}</div>
                 <div class="station-id">Station ID: ${station.stationId}</div>
             </div>
             
@@ -873,17 +917,27 @@ async function fetchWithMultipleProxies(baseUrl) {
 
 function createIndividualCharts(stationData) {
     const chartsGrid = document.getElementById('chartsGrid');
-    
+
     charts.forEach(chart => chart.destroy());
     charts = [];
-    
+
+    // fetchDataAsync sets this to 'block' for the loading spinner; restore the
+    // stylesheet's responsive grid layout (css/styles.css .charts-grid) now that
+    // charts are being populated, otherwise the inline style wins and charts stack.
+    chartsGrid.style.display = 'grid';
     chartsGrid.innerHTML = '';
     
     stationData.forEach((station, index) => {
         const values = station.data.map(d => d.y);
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        let min = Infinity;
+        let max = -Infinity;
+        let sum = 0;
+        for (const v of values) {
+            if (v < min) min = v;
+            if (v > max) max = v;
+            sum += v;
+        }
+        const avg = sum / values.length;
         const latest = values[values.length - 1];
         
         const paramConfig = station.parameterConfig;
@@ -909,7 +963,7 @@ function createIndividualCharts(stationData) {
         chartDiv.className = 'individual-chart';
         chartDiv.innerHTML = `
             <div class="chart-header">
-                <div class="chart-title">${station.siteName}</div>
+                <div class="chart-title">${escapeHtml(station.siteName)}</div>
                 <div class="chart-subtitle">Station ID: ${station.stationId} | ${station.parameterName}</div>
                 ${alertsHtml}
                 <div class="stats-info">

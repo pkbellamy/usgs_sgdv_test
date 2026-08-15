@@ -6,11 +6,15 @@
     <title>USGS Stream Gage Visualizer</title>
     
     <!-- External Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"
+            integrity="sha384-9MhbyIRcBVQiiC7FSd7T38oJNj2Zh+EfxS7/vjhBi4OOT78NlHSnzM31EZRWR1LZ" crossorigin="anonymous"></script>
     <!-- ENHANCED: Added Chart.js zoom plugin -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/1.2.1/chartjs-plugin-zoom.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-moment/1.0.1/chartjs-adapter-moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/1.2.1/chartjs-plugin-zoom.min.js"
+            integrity="sha384-4ujnoFIaCz8xsHAu9NwdZDeFVVV0SHFY9KLc+MJIWK7KMSVimFAnmdhc9fXWhMXt" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"
+            integrity="sha384-VCGDSwGwLWkVOK5vAWSaY38KZ4oKJ0whHjpJQhjqrMlWadpf2dUVKLgOLBdEaLvZ" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-moment/1.0.1/chartjs-adapter-moment.min.js"
+            integrity="sha384-s5cwu7c1MxOfC90RGRDWeB53/7VpDTxXi0YxKJF5y9oKA99+UYxMk0qvlqso188s" crossorigin="anonymous"></script>
     
     <!-- Leaflet for mapping - try different CDN for better Firefox compatibility -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
@@ -69,14 +73,14 @@
                 <h2>Display Mode</h2>
                 <div class="display-mode-selector">
                     <div class="display-mode-buttons">
-                        <div class="mode-button active" id="timeSeriesBtn" onclick="setDisplayMode('timeseries')">
+                        <button type="button" class="mode-button active" id="timeSeriesBtn" onclick="setDisplayMode('timeseries')">
                             📈 Time Series<br>
                             <small>Historical charts</small>
-                        </div>
-                        <div class="mode-button" id="currentBtn" onclick="setDisplayMode('current')">
+                        </button>
+                        <button type="button" class="mode-button" id="currentBtn" onclick="setDisplayMode('current')">
                             🔢 Current Values<br>
                             <small>Latest readings</small>
-                        </div>
+                        </button>
                     </div>
                 </div>
             </div>
