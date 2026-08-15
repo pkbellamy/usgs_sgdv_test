@@ -54,6 +54,26 @@ producing full tile coverage after a size change), Current Values mode rendering
 correctly in the main pane, and a simulated mobile-width single-column collapse —
 all with no console errors.
 
+## Follow-up density/overflow pass (2026-08-15, commit `fc90408`)
+
+The initial 300px sidebar had the Start/End Date inputs as a 2-column grid, too
+narrow for a native date input's text plus its calendar-picker icon — the End Date
+field visibly overran its card. Fixed by stacking the date inputs to a single
+column, and while addressing that, shrunk typography/spacing throughout for
+density per follow-up request ("fit as much info as possible on a single page"):
+
+- `.sidebar` narrowed from `300px` to **`260px`** (the figure above is what was
+  originally implemented; this is the current value).
+- `h1` down from `2.5em`/`margin-bottom: 30px` to `1.6em`/`16px` (`1.4em` on
+  mobile); body base `font-size` set to `14px`.
+- Sidebar cards (`.station-selector`, `.data-controls`, `.display-controls`,
+  `.map-container`): padding `18px → 12px`; `.sidebar` gap `20px → 12px`.
+- `h2` `1.1em → 0.85em` (uppercase, tighter letter-spacing), inputs/select/button
+  `14px → 12px` font with reduced padding, station tags and map legend similarly
+  reduced.
+- Main-pane grids (`.charts-grid`, `.current-values-grid`) `margin-top`/`gap`
+  trimmed from `30px` to `16px`/`20px` — chart/stat typography itself untouched.
+
 ---
 
 # Stats bar (Latest/Average/Minimum/Maximum) should reflect the current zoom window
