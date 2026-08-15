@@ -1,6 +1,9 @@
 # UI layout redesign — left sidebar / right main pane (2026-08-15)
 
-Not yet implemented. Recorded here for future reference per user request.
+**✅ RESOLVED (2026-08-15).** Implemented and verified live (real USGS fetch,
+Time Series and Current Values modes, map square rendering with `invalidateSize()`,
+and a simulated mobile-breakpoint single-column collapse, all with no console
+errors).
 
 ## Current layout
 
@@ -22,19 +25,34 @@ full-width charts grid (`#chartsGrid`) or current-values grid.
   data — the charts (time series) or current-values grid — giving it much more
   screen real estate than the current full-width-but-stacked-below layout.
 
-## Notes for implementation (not yet designed in detail)
+## How it was implemented
 
-- Likely a CSS layout change (`display: flex` or `grid` on a new top-level
-  container, e.g. `.app-layout` wrapping `.controls`/`#mapContainer` on the left and
-  `#chartsGrid`/`#currentValuesGrid` on the right) plus corresponding HTML
-  restructuring in `index.html`.
-- Existing responsive breakpoint at `css/styles.css:607` (`.charts-grid,
-  .current-values-grid`) will need to be reconciled with the new two-column
-  structure for smaller viewports (sidebar likely needs to collapse above/below
-  the main pane on mobile rather than staying side-by-side).
-- Leaflet's `map.invalidateSize()` calls (see `fitMapToStations` in `js/main.js`)
-  will need to run after any layout/size change to the map container, since
-  Leaflet caches its container dimensions.
+- `index.html`: wrapped the three control panels (`.station-selector`,
+  `.data-controls`, `.display-controls`) plus `#mapContainer` in a new `.sidebar`
+  div; wrapped `#currentValuesGrid`/`#chartsGrid`/`#chartInstructions` in a new
+  `.main-pane` div; both siblings inside a new `.app-layout` wrapper. The `h1` title
+  stays as a full-width header above `.app-layout`. Removed `#map`'s inline
+  `height: 400px` (moved to CSS). No `id` changes — `js/main.js` needed zero
+  changes.
+- `css/styles.css`: `.app-layout` is `display: flex`; `.sidebar` is a fixed
+  `flex: 0 0 300px` column (`flex-direction: column`, `gap: 20px`); `.main-pane` is
+  `flex: 1; min-width: 0`. `#map` uses `aspect-ratio: 1 / 1; width: 100%` so it
+  renders as a true square that scales with the sidebar. `.map-legend` switched
+  from a horizontal flex row to a vertical stack to fit the narrow column. Bumped
+  `.container` `max-width` from 1400px to 1600px to give the main pane more room.
+  Reduced `h2` font-size and card padding slightly so the three control panels fit
+  comfortably at ~300px wide.
+- Mobile breakpoint (`@media (max-width: 768px)`): replaced the old
+  `.controls { grid-template-columns: 1fr }` override with
+  `.app-layout { flex-direction: column }` (sidebar stacks above main pane, full
+  width) and `#map { max-width: 400px; margin: 0 auto }` (keeps the map square
+  reasonably sized instead of stretching to full viewport width).
+
+**Verified:** real USGS fetch + chart rendering in the main pane, map rendering as
+a clean square with the correct marker (confirmed via `map.invalidateSize()`
+producing full tile coverage after a size change), Current Values mode rendering
+correctly in the main pane, and a simulated mobile-width single-column collapse —
+all with no console errors.
 
 ---
 

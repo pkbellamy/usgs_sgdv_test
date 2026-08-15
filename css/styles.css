@@ -12,7 +12,7 @@ body {
 }
 
 .container {
-    max-width: 1400px;
+    max-width: 1600px;
     margin: 0 auto;
     background: rgba(255, 255, 255, 0.95);
     border-radius: 20px;
@@ -30,16 +30,28 @@ h1 {
     text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
 }
 
-.controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+.app-layout {
+    display: flex;
+    align-items: flex-start;
     gap: 30px;
-    margin-bottom: 30px;
+}
+
+.sidebar {
+    flex: 0 0 300px;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.main-pane {
+    flex: 1;
+    min-width: 0;
 }
 
 .station-selector, .data-controls, .display-controls {
     background: #f8f9fa;
-    padding: 25px;
+    padding: 18px;
     border-radius: 15px;
     border: 2px solid #e9ecef;
     transition: all 0.3s ease;
@@ -53,10 +65,10 @@ h1 {
 
 h2 {
     color: #495057;
-    margin-bottom: 20px;
-    font-size: 1.3em;
+    margin-bottom: 15px;
+    font-size: 1.1em;
     border-bottom: 2px solid #667eea;
-    padding-bottom: 10px;
+    padding-bottom: 8px;
 }
 
 .station-input {
@@ -231,10 +243,9 @@ input[type="date"]:focus {
 /* Map Container Styles */
 .map-container {
     background: #f8f9fa;
-    padding: 25px;
+    padding: 18px;
     border-radius: 15px;
     border: 2px solid #e9ecef;
-    margin-bottom: 30px;
     transition: all 0.3s ease;
 }
 
@@ -244,12 +255,20 @@ input[type="date"]:focus {
     box-shadow: 0 10px 20px rgba(0,0,0,0.1);
 }
 
+#map {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 15px;
+    overflow: hidden;
+}
+
 .map-legend {
     display: flex;
-    justify-content: center;
-    gap: 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
     margin-top: 15px;
-    padding: 15px;
+    padding: 12px;
     background: white;
     border-radius: 10px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -259,7 +278,7 @@ input[type="date"]:focus {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
 }
 
@@ -604,10 +623,20 @@ canvas {
 }
 
 @media (max-width: 768px) {
-    .controls {
-        grid-template-columns: 1fr;
+    .app-layout {
+        flex-direction: column;
     }
-    
+
+    .sidebar {
+        flex: 1 1 auto;
+        width: 100%;
+    }
+
+    #map {
+        max-width: 400px;
+        margin: 0 auto;
+    }
+
     .date-inputs {
         grid-template-columns: 1fr;
     }
